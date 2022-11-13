@@ -10,10 +10,13 @@ function Actions({ readContracts, writeContracts, tx, address }) {
   const [contractData, setContractData] = useState({});
   const [selectedAction, setSelectedAction] = useState();
   const [fromTokenId, setFromTokenId] = useState();
+  const [actionForApproval, setActionForApproval] = useState();
+  const [isApprovedForAction, setIsApprovedForAction] = useState(ethers.constants.AddressZero);
   const [toTokenId, setToTokenId] = useState();
   const [actionCollectibles, setActionCollectibles] = useState();
   const [castType, setCastType] = useState();
   const [balance, setBalance] = useState();
+  const [tokenIdToRegister, setTokenIdToRegister] = useState();
 
   const balanceContract = useContractReader(readContracts, "ActionCollectible", "balanceOf", [address]);
 
@@ -45,6 +48,24 @@ function Actions({ readContracts, writeContracts, tx, address }) {
     };
     readyContractData();
   }, [readContracts]);
+
+  useEffect(() => {
+    let approvedAddr;
+    const getApprovalFor = async () => {
+      try {
+        if (actionForApproval || selectedAction) {
+          approvedAddr = await readContracts.ActionCollectible.getApprovedForAction(
+            address,
+            actionForApproval ? actionForApproval : selectedAction,
+          );
+          setIsApprovedForAction(approvedAddr);
+        }
+      } catch (e) {
+        console.log("error getting approvalFor", e);
+      }
+    };
+    getApprovalFor();
+  }, [readContracts, address, selectedAction, actionForApproval]);
 
   useEffect(() => {
     const _actions = [];
@@ -93,13 +114,23 @@ function Actions({ readContracts, writeContracts, tx, address }) {
           const tokenId = await readContracts.ActionCollectible.tokenOfOwnerByIndex(address, tokenIndex);
           console.log("tokenId: " + tokenId);
           const tokenURI = await readContracts.ActionCollectible.tokenURI(tokenId);
+          const loogiesAddress = await readContracts.ActionCollectible.address;
+          const tokenStats = await readContracts.ActionCollectibleState.getTokenStats(loogiesAddress, tokenId);
+          const strength = await readContracts.ActionCollectibleState.getStrength(loogiesAddress, tokenId);
           const jsonManifestString = Buffer.from(tokenURI.substring(29), "base64").toString();
           console.log("jsonManifestString: " + jsonManifestString);
 
           try {
             const jsonManifest = JSON.parse(jsonManifestString);
             console.log("jsonManifest: " + jsonManifest);
-            collectibleUpdate.push({ id: tokenId, uri: tokenURI, owner: address, ...jsonManifest });
+            collectibleUpdate.push({
+              id: tokenId,
+              uri: tokenURI,
+              strength,
+              tokenStats,
+              owner: address,
+              ...jsonManifest,
+            });
           } catch (err) {
             console.log(err);
           }
@@ -115,6 +146,9 @@ function Actions({ readContracts, writeContracts, tx, address }) {
   const handleActionSelect = e => {
     setSelectedAction(e);
   };
+  const selectActionForApproval = e => {
+    setActionForApproval(e);
+  };
 
   const handleCastSelect = e => {
     const value = e.target.value;
@@ -123,12 +157,109 @@ function Actions({ readContracts, writeContracts, tx, address }) {
   const capitalizeString = string => {
     return string.charAt(0).toUpperCase() + string.slice(1);
   };
+  const handleTokenState = number => {
+    if (number === 0) {
+      return "Default";
+    } else if (number === 1) {
+      return "Slapped";
+    } else if (number === 2) {
+      return "Winner";
+    } else if (number === 3) {
+      return "Dead";
+    }
+  };
+  const handleTokenVibe = number => {
+    if (number === 0) {
+      return "Chill";
+    } else if (number === 1) {
+      return "Lust";
+    } else if (number === 2) {
+      return "Rage";
+    } else if (number === 3) {
+      return "Immune";
+    }
+  };
   return (
     <div>
       <div style={{ maxWidth: 820, margin: "auto", marginTop: 32, paddingBottom: 32 }}>
-        Lorem ipsum dolor sit amet, consectetur adipisicing elit. Exercitationem totam quidem quibusdam atque libero
-        voluptates beatae vitae recusandae alias cupiditate. Expedita ad officiis odio est omnis itaque ex molestias
-        fuga.
+        {sendableActions.length ? (
+          <div>
+            <div style={{ marginTop: 20, padding: "0 100px" }}>
+              <h2 className="actions-form-group">Register Token</h2>
+              <p>Register newly minted NFTs to the state to have your NFT stats initialized </p>
+              <Input
+                className="actions-form-group"
+                value={tokenIdToRegister}
+                type="number"
+                onChange={e => {
+                  const _tokenId = e.target.value;
+                  setTokenIdToRegister(_tokenId);
+                }}
+                placeholder="Token ID"
+              />
+              <Button
+                className="actions-form-group"
+                type="primary"
+                onClick={() => {
+                  const registerToken = async () => {
+                    try {
+                      const txn = await tx(
+                        writeContracts.ActionCollectibleState.registerToken(
+                          contractData.fromContract,
+                          tokenIdToRegister,
+                        )
+                      );
+                      console.log(txn.hash);
+                    } catch (e) {
+                      console.log(e);
+                    }
+                  };
+                  registerToken();
+                }}
+              >
+                Register token
+              </Button>
+            </div>
+            <div>
+              <h2>Approve action</h2>
+              <p>Get your address approved to send actions</p>
+              <Select
+                style={{
+                  width: 180,
+                  textAlign: "left",
+                }}
+                onChange={selectActionForApproval}
+              >
+                {sendableActions.map(item => (
+                  <Option value={item.selector}>{capitalizeString(item.name)}</Option>
+                ))}
+              </Select>
+              <Button
+                disabled={isApprovedForAction !== ethers.constants.AddressZero}
+                type="primary"
+                onClick={() => {
+                  const approveForAction = async () => {
+                    try {
+                      const txn = await tx(
+                        writeContracts.ActionCollectible.approveForAction(
+                          address,
+                          actionForApproval,
+                          contractData.stateContract,
+                        ),
+                      );
+                      console.log(txn.hash);
+                    } catch (e) {
+                      console.log(e);
+                    }
+                  };
+                  approveForAction();
+                }}
+              >
+                {isApprovedForAction !== ethers.constants.AddressZero ? "Approved" : "Approve for action"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div style={{ width: 820, margin: "auto", paddingBottom: 256 }}>
@@ -137,7 +268,9 @@ function Actions({ readContracts, writeContracts, tx, address }) {
           dataSource={actionCollectibles}
           renderItem={item => {
             const id = item.id.toNumber();
-
+            const strength = item.strength.toNumber();
+            const state = item.tokenStats[1];
+            const vibe = item.tokenStats[2];
             console.log("IMAGE", item.image);
 
             return (
@@ -149,19 +282,13 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                     </div>
                   }
                 >
-                  {/* <a
-                    href={
-                      "https://opensea.io/assets/" +
-                      (readContracts && readContracts.ActionCollectible && readContracts.ActionCollectible.address) +
-                      "/" +
-                      item.id
-                    }
-                    target="_blank"
-                    rel="noreferrer"
-                  > */}
                   <img src={item.image} />
-                  {/* </a> */}
                   <div>{item.description}</div>
+                  <div>
+                    <span className="token-properties">Strength: {strength}</span>
+                    <span className="token-properties">State: {handleTokenState(state)}</span>
+                    <span className="token-properties">Vibes: {handleTokenVibe(vibe)}</span>
+                  </div>
                 </Card>
                 <div className="action-controls" style={{ width: "100%", padding: 15 }}>
                   {sendableActions.length && receivableActions.length ? (
@@ -170,7 +297,7 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                       <div className="actions-form-group">
                         <span>Choose action: </span>
                         <Select
-                          defaultValue={sendableActions[0].name}
+                          placeholder="select"
                           style={{
                             width: 180,
                             textAlign: "left",
@@ -216,6 +343,7 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                       </div>
                       <div>
                         <Button
+                          disabled={isApprovedForAction === ethers.constants.AddressZero}
                           onClick={() => {
                             const sendAction = async () => {
                               try {
@@ -227,15 +355,15 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                                   contractData.stateContract,
                                   castType ? castType : selectedAction,
                                 ];
-                                console.log("send params", sendParams)
+                                console.log("send params", sendParams);
                                 // const sendParams = []
-                                const sendAction = tx(await writeContracts.ActionCollectible.sendAction(sendParams));
+                                const sendAction = await tx(writeContracts.ActionCollectible.sendAction(sendParams));
                                 console.log("send action txn ", sendAction.hash);
                               } catch (e) {
                                 console.log(e);
                               }
-                            }
-                            sendAction()
+                            };
+                            sendAction();
                           }}
                           type="primary"
                         >

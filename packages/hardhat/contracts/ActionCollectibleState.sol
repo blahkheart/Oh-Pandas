@@ -10,10 +10,14 @@ pragma solidity ^0.8.6;
 
 /******************************************
  * TODO
- * Check that token exists on source contract during token registration
+ * Automatically set token to default state after action expiry period
+ * Charge a fee for healAfterExpiry() (Optional)
+ * ***********************DONE****************************************
+ * Done - Check that token exists on loogie contract when healAfterExpiry() is called
+ * Done - Check that token exists on loogie contract on token registration
+ * Done - Check that caller is owner during token registration
  * Done - If token does not survive slap set token properties and URI to dead token
  * Done - set lastActionBlock for tokens onActionReceived()
- * Set token to default state after action expiry period
  * ************************************/
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
@@ -31,6 +35,8 @@ abstract contract ActionCollectibleContract {
         view
         virtual
         returns (address owner);
+
+    function totalSupply() public view virtual returns (uint256);
 }
 
 contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
@@ -47,7 +53,7 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
     mapping(uint256 => uint256) public chubbiness;
     mapping(uint256 => string) actionURI;
     mapping(uint256 => uint256) lastActionBlock;
-    uint256 public actionDurationBlocks = 15000;
+    uint256 public actionDurationBlocks = 10000;
     bytes4 constant CAST_SELECTOR = bytes4(keccak256("cast"));
     // Receivable actions
     bytes4 constant SLAP_SELECTOR = bytes4(keccak256("slap"));
@@ -55,13 +61,14 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
     bytes4 constant CAST_LUST_SELECTOR = bytes4(keccak256("lust"));
     bytes4 constant CAST_RAGE_SELECTOR = bytes4(keccak256("rage"));
 
+    // Determines the color of NFT based on the action received (Action IDs were chosen arbitrarily and hardcoded)
     ActionProperty actionProperties =
         ActionProperty(
-            Property({actionId: 7777, color: "75010f"}),
-            Property({actionId: 6969, color: "0f33a0"}),
-            Property({actionId: 9999, color: "f5070b"}),
-            Property({actionId: 0, color: "fafaed"}),
-            Property({actionId: 1000, color: ""})
+            Property({actionId: 7777, color: "75010f"}), // Slapped loogie
+            Property({actionId: 6969, color: "0f33a0"}), // Lust loogie
+            Property({actionId: 9999, color: "f5070b"}), // Rage loogie
+            Property({actionId: 0, color: "fafaed"}), // Dead loogie
+            Property({actionId: 1000, color: ""}) // Immune loogie
         );
 
     constructor(ActionCollectibleContract _actionLoogies) {
@@ -130,6 +137,7 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
         return stats[_contract][tokenId];
     }
 
+
     function getActionStateURI(uint _tokenId)
         external
         view
@@ -153,6 +161,8 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
             stats[_contract][tokenId].strength == 0,
             "State: already registered"
         );
+        require(tokenId <= actionLoogies.totalSupply(), "Non existent token"); // check that token exists
+        require(msg.sender == actionLoogies.ownerOf(tokenId), "Not owner"); // check that caller is the owner
         stats[_contract][tokenId] = TokenStats(
             (_random(_contract, tokenId) % 20) + 4,
             TokenSlapState.DEFAULT,
@@ -173,11 +183,23 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
             (block.number - lastActionBlock[_tokenId]) > actionDurationBlocks,
             "Action not expired"
         );
-        stats[_contract][_tokenId] = TokenStats(
-            10,
-            TokenSlapState.DEFAULT,
-            TokenCastState.CHILL
-        );
+        require(_tokenId <= actionLoogies.totalSupply(), "Non existent token"); // check that token exists
+        uint256 _tokenStrength = stats[_contract][_tokenId].strength; // get token strength
+        // If token stregth is less than 10 reset strength to 10 
+        if(_tokenStrength < 10) {
+            stats[_contract][_tokenId] = TokenStats(
+                10,
+                TokenSlapState.DEFAULT,
+                TokenCastState.CHILL
+            );
+        // else use current token strength and set state/vibes to default and chill respectively
+        }else {
+              stats[_contract][_tokenId] = TokenStats(
+                _tokenStrength,
+                TokenSlapState.DEFAULT,
+                TokenCastState.CHILL
+            );
+        }
     }
 
     function getState(address _contract, uint256 tokenId)
@@ -234,7 +256,7 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
         returns (string memory)
     {
         string memory name = string(
-            abi.encodePacked("Loogie #", action.to._tokenId.toString())
+            abi.encodePacked("Loogie #", id.toString())
         );
         string memory description = string(
             abi.encodePacked("Loogies in action...")
@@ -301,7 +323,7 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
         // call appropriate action handler
         if (_action.selector == CAST_SELECTOR) {
             _onCastReceived(_action);
-        } else if(_action.selector == SLAP_SELECTOR) {
+        } else if (_action.selector == SLAP_SELECTOR) {
             _onSlapReceived(_action);
         }
     }
@@ -362,6 +384,7 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
 
     function _onCastReceived(Action calldata _action) internal {
         bytes4 castSelector = _action.data;
+        // if action data (action.data) is undefined it will default to Rage selector
         if (castSelector == 0x00000000) {
             castSelector = CAST_RAGE_SELECTOR;
         }
@@ -373,9 +396,9 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
             "'from/to' 0 strength token"
         );
         require(toStats.vibes != TokenCastState.IMMUNE, "Immune token");
-
+        // Cast Immune spell(tokens gain strength when they cast immune spells)
         if (castSelector == CAST_IMMUNE_SELECTOR) {
-            require(fromStats.strength > 10, "Not enough strength, < 10");
+            require(fromStats.strength >= 10, "Not enough strength, < 10"); // Strength must be >= 10 to cast immune
             toStats.vibes = TokenCastState.IMMUNE;
             fromStats.strength =
                 fromStats.strength +
@@ -388,10 +411,12 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
             fromStats.strength =
                 fromStats.strength -
                 (fromStats.strength % toStats.strength);
+            // cast lust spell
             if (castSelector == CAST_LUST_SELECTOR) {
                 // set 'to' token to lust vibes
                 toStats.vibes = TokenCastState.LUST;
             }
+            // cast rage spell
             if (castSelector == CAST_RAGE_SELECTOR) {
                 // set 'to' token to rage vibes
                 toStats.vibes = TokenCastState.RAGE;
@@ -420,7 +445,7 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
 
         // Relative strength determines likelihood of a win.
         if (val == fromStats.strength) {
-            // tie
+            // tie (no change in token stats or URI)
             stats[action.from._address][action.from._tokenId]
                 .state = TokenSlapState.DEFAULT;
             stats[action.to._address][action.to._tokenId].state = TokenSlapState
@@ -441,21 +466,24 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
                 _setTokenStats(action.to, toStats);
                 _setSlappedTokenProperties(action.to._tokenId, _actionId);
             } else {
+                // 'to' token receives slap, losses strength and state set to slapped
                 toStats.strength -= delta;
                 toStats.state = TokenSlapState.SLAPPED;
                 _actionId = actionProperties.slappedLoogie.actionId;
                 _setTokenStats(action.to, toStats);
                 _setSlappedTokenProperties(action.to._tokenId, _actionId);
             }
+            // change token uri
             string memory uri = tokenURI(action.to._tokenId, action);
             actionURI[action.to._tokenId] = uri;
         } else {
-            // receiver wins!
+            // receiver wins [Counter the slap!]
             uint256 delta = val - fromStats.strength;
             toStats.strength += delta;
             toStats.state = TokenSlapState.WINNER;
             _setTokenStats(action.to, toStats);
 
+            // check to see if 'from' token survives counter slap
             if (delta >= fromStats.strength) {
                 fromStats.strength = 0;
                 fromStats.state = TokenSlapState.DEAD;
@@ -463,12 +491,14 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
                 _setTokenStats(action.from, fromStats);
                 _setSlappedTokenProperties(action.from._tokenId, _actionId);
             } else {
+                // 'from' token receives slap, losses strength and state set to slapped
                 fromStats.strength -= delta;
                 fromStats.state = TokenSlapState.SLAPPED;
                 _actionId = actionProperties.slappedLoogie.actionId;
                 _setTokenStats(action.from, fromStats);
                 _setSlappedTokenProperties(action.from._tokenId, _actionId);
             }
+            // change token uri
             string memory uri = tokenURI(action.from._tokenId, action);
             actionURI[action.from._tokenId] = uri;
         }
@@ -487,7 +517,7 @@ contract ActionCollectibleState is IERC5050Receiver, IActionsNFTState, Ownable {
     {
         stats[obj._address][obj._tokenId] = _stats;
     }
-
+    // generates a random number
     function _random(address _contract, uint256 tokenId)
         internal
         view

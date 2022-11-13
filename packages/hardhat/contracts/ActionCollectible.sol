@@ -14,6 +14,15 @@ import "./interfaces/IPublicLockV10.sol";
 import "./interfaces/IActionsNFTState.sol";
 
 // GET LISTED ON OPENSEA: https://testnets.opensea.io/get-listed/step-two
+/**
+ * TODOS
+ * REFACTOR tokenURI TO ALLOW FOR USE OF DIFFERENT STATE CONTRACTS (OPTIONAL)
+ * ALLOW USERS TO SET THEIR STATE CONTRACT (OPTIONAL)
+ * ***************DONE****************************
+ * Modify mint function
+ * Add withdraw function
+ * Add receive function
+ */
 
 contract ActionCollectible is
     IERC5050Sender,
@@ -30,12 +39,12 @@ contract ActionCollectible is
 
     Counters.Counter private _tokenIds;
     IPublicLock public actionLock;
-    
-    bytes4 constant public CAST_SELECTOR = bytes4(keccak256("cast"));
-    bytes4 constant public SLAP_SELECTOR = bytes4(keccak256("slap"));
-    bytes4 constant public CAST_IMMUNE_SELECTOR = bytes4(keccak256("immune"));
-    bytes4 constant public CAST_LUST_SELECTOR = bytes4(keccak256("lust"));
-    bytes4 constant public CAST_RAGE_SELECTOR = bytes4(keccak256("rage"));
+
+    bytes4 public constant CAST_SELECTOR = bytes4(keccak256("cast"));
+    bytes4 public constant SLAP_SELECTOR = bytes4(keccak256("slap"));
+    bytes4 public constant CAST_IMMUNE_SELECTOR = bytes4(keccak256("immune"));
+    bytes4 public constant CAST_LUST_SELECTOR = bytes4(keccak256("lust"));
+    bytes4 public constant CAST_RAGE_SELECTOR = bytes4(keccak256("rage"));
 
     constructor() ERC721("Loogies", "LOOG") {
         _registerAction("slap");
@@ -47,7 +56,8 @@ contract ActionCollectible is
 
     mapping(uint256 => bytes3) public color;
     mapping(uint256 => uint256) public chubbiness;
-    uint256 mintDeadline = block.timestamp + 24 hours;
+    uint256 maxMintAmount = 2500;
+    uint256 price = 0.001 ether;
     address public stateContract;
 
     ActionsSet.Set private _receivableActions;
@@ -56,6 +66,8 @@ contract ActionCollectible is
     uint256 private _nonce;
     mapping(address => mapping(bytes4 => address)) actionApprovals;
     mapping(address => mapping(address => bool)) operatorApprovals;
+
+    receive() external payable {}
 
     function setActionLockAddress(IPublicLock _lockAddress) public onlyOwner {
         actionLock = _lockAddress;
@@ -73,8 +85,25 @@ contract ActionCollectible is
         hasKey = actionLock.getHasValidKey(_user);
     }
 
-    function mintItem() public returns (uint256) {
-        require(block.timestamp < mintDeadline, "DONE MINTING");
+    // check is caller has a valid membership to call a specific function
+    function _isMemberCheck(address _sender, Action memory action) private view{
+        if (address(actionLock) != address(0)) {
+            bool hasKey = hasValidActionKey(_sender);
+            // check if the action being called is locked for members only
+            if (
+                action.selector == CAST_SELECTOR &&
+                action.data == CAST_IMMUNE_SELECTOR
+            ) {
+                require(hasKey, "Only members");
+            }
+        }
+    }
+
+    function mintItem() public payable returns (uint256) {
+        require(totalSupply() <= maxMintAmount, "DONE MINTING");
+        if(msg.sender != owner()){
+            require(msg.value >= price, "INSUFFICIENT BALANCE");
+        }
         _tokenIds.increment();
 
         uint256 id = _tokenIds.current();
@@ -98,6 +127,11 @@ contract ActionCollectible is
         return id;
     }
 
+    function withdraw() public onlyOwner {
+        (bool success,) = payable(msg.sender).call{value: address(this).balance}("");
+        require(success);
+    }
+
     function tokenURI(uint256 id)
         public
         view
@@ -105,8 +139,11 @@ contract ActionCollectible is
         returns (string memory)
     {
         require(_exists(id), "not exist");
+        // If state contract is set, fetch token uri from the state contract 
         if (stateContract != address(0)) {
-            string memory actionURI = IActionsNFTState(stateContract).getActionStateURI(id);
+            string memory actionURI = IActionsNFTState(stateContract)
+                .getActionStateURI(id);
+            // If token has an active action in state return the action uri 
             if (
                 keccak256(abi.encodePacked(actionURI)) !=
                 keccak256(abi.encodePacked(""))
@@ -114,6 +151,7 @@ contract ActionCollectible is
                 return actionURI;
             }
         }
+        // otherwise use default loogie uri
         string memory name = string(
             abi.encodePacked("Loogie #", id.toString())
         );
@@ -194,7 +232,6 @@ contract ActionCollectible is
     }
 
     //ERC5050 Implementation
-
     function _registerAction(string memory action) internal {
         _registerSendable(action);
         _registerReceivable(action);
@@ -211,7 +248,7 @@ contract ActionCollectible is
     function receivableActions() external view returns (string[] memory) {
         return _receivableActions.names();
     }
- 
+
     function sendableActions() external view returns (string[] memory) {
         return _sendableActions.names();
     }
@@ -231,6 +268,9 @@ contract ActionCollectible is
         require(action.state != address(0), "Zero address state");
         address next = action.state;
         require(next.isContract(), "ERC5050: invalid state");
+        if(msg.sender != address(this)){
+            _isMemberCheck(tx.origin, action);
+        }
         try
             IERC5050Receiver(next).onActionReceived{value: msg.value}(
                 action,
@@ -280,13 +320,9 @@ contract ActionCollectible is
             _isApprovedOrSelf(action.user, action.selector),
             "ERC5050: unapproved sender"
         );
-        // require(
-        //     hasValidActionKey(msg.sender),
-        //     "Invalid key for action"
-        // );
         _sendAction(action);
     }
-    
+
     function _sendAction(Action memory action) private {
         address next;
         bool toIsContract = action.to._address.isContract();
@@ -298,6 +334,7 @@ contract ActionCollectible is
         } else {
             next = action.state;
         }
+        _isMemberCheck(msg.sender, action);
         uint256 nonce;
         _validate(action);
         nonce = _nonce;
