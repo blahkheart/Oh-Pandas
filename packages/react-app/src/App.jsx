@@ -1,4 +1,4 @@
-import { Button, Col, Menu, Row } from "antd";
+import { Button, Col, Menu, Row, Card, Spin } from "antd";
 import "antd/dist/antd.css";
 import {
   useBalance,
@@ -14,6 +14,7 @@ import { Link, Route, Switch, useLocation } from "react-router-dom";
 import "./App.css";
 import {
   Account,
+  Address,
   Contract,
   Faucet,
   GasGauge,
@@ -26,15 +27,16 @@ import {
 } from "./components";
 import { NETWORKS, ALCHEMY_KEY } from "./constants";
 import externalContracts from "./contracts/external_contracts";
+import StackGrid from "react-stack-grid";
 // contracts
 import deployedContracts from "./contracts/hardhat_contracts.json";
-import { Transactor, Web3ModalSetup } from "./helpers";
+import { Transactor, Web3ModalSetup, loogieActiveStateHandlers } from "./helpers";
 import { Home, Actions } from "./views";
 import { useStaticJsonRPC } from "./hooks";
-
+const abis = require("@unlock-protocol/contracts");
 const { ethers } = require("ethers");
 /*
-    Welcome to Oh Pandas !
+    Welcome to Action Loogies !
 
     Code:
     https://github.com/scaffold-eth/scaffold-eth
@@ -54,7 +56,7 @@ const { ethers } = require("ethers");
 
 /// 📡 What chain are your contracts deployed to?
 // const initialNetwork = NETWORKS.rinkeby; // <------- select your target frontend network (localhost, rinkeby, xdai, mainnet)
-const initialNetwork = NETWORKS.localhost; // <------- select your target frontend network (localhost, rinkeby, xdai, mainnet)
+const initialNetwork = NETWORKS.goerli; // <------- select your target frontend network (localhost, rinkeby, xdai, mainnet)
 
 // 😬 Sorry for all the console logging
 const DEBUG = true;
@@ -79,9 +81,12 @@ function App(props) {
   const [injectedProvider, setInjectedProvider] = useState();
   const [address, setAddress] = useState();
   const [selectedNetwork, setSelectedNetwork] = useState(networkOptions[0]);
+  const [actionLockAddress, setActionLockAddress] = useState();
+  const [publicLockContract, setPublicLockContract] = useState();
   const location = useLocation();
 
   const targetNetwork = NETWORKS[selectedNetwork];
+  const { handleTokenState, handleTokenVibe } = loogieActiveStateHandlers;
 
   // 🔭 block explorer URL
   const blockExplorer = targetNetwork.blockExplorer;
@@ -136,7 +141,7 @@ function App(props) {
   // The transactor wraps transactions and provides notificiations
   const tx = Transactor(userSigner, gasPrice);
 
-  // Oh Pandas is full of handy hooks like this one to get your balance:
+  //  Action Loogies is full of handy hooks like this one to get your balance:
   const yourLocalBalance = useBalance(localProvider, address);
 
   // Just plug in different 🛰 providers to get your balance on different chains:
@@ -155,6 +160,19 @@ function App(props) {
   // EXTERNAL CONTRACT EXAMPLE:
   // If you want to bring in the mainnet DAI contract it would look like:
   const mainnetContracts = useContractLoader(mainnetProvider, contractConfig);
+
+  const [totalSupply, setTotalSupply] = useState();
+  useEffect(() => {
+    const getTotalSupply = async () => {
+      try {
+        let ts = await readContracts.ActionCollectible.totalSupply();
+        setTotalSupply(ts);
+      } catch (e) {
+        console.log("error fetching total supply", e);
+      }
+    };
+    void getTotalSupply();
+  }, [readContracts]);
 
   // If you want to call a function on a new block
   useOnBlock(mainnetProvider, () => {
@@ -199,7 +217,105 @@ function App(props) {
     }
   }, [loadWeb3Modal]);
 
+  // set unlock protocol variables
+  useEffect(() => {
+    const readyUnlock = async () => {
+      try {
+        const _actionLockAddress = await readContracts.ActionCollectible.actionLock();
+        if (_actionLockAddress !== ethers.constants.AddressZero) {
+          const _publicLockContract = new ethers.Contract(_actionLockAddress, abis.PublicLockV12.abi, userSigner);
+          setActionLockAddress(_actionLockAddress);
+          setPublicLockContract(_publicLockContract);
+        }
+      } catch (e) {
+        console.log("Unlock error", e);
+      }
+    };
+    readyUnlock();
+  }, [readContracts, userSigner, address]);
+
   const faucetAvailable = localProvider && localProvider.connection && targetNetwork.name.indexOf("local") !== -1;
+
+  const [isloadingAssets, setIsLoadingAssets] = useState();
+  const [loadedAssets, setLoadedAssets] = useState();
+  useEffect(() => {
+    const updateYourCollectibles = async () => {
+      const assetUpdate = [];
+      setIsLoadingAssets(true);
+      for (let tokenIndex = 1; tokenIndex <= totalSupply; ++tokenIndex) {
+        try {
+          console.log("Getting token index " + tokenIndex);
+          const owner = await readContracts.ActionCollectible.ownerOf(tokenIndex);
+          console.log("owner: " + owner);
+          const tokenURI = await readContracts.ActionCollectible.tokenURI(tokenIndex);
+          const loogiesAddress = readContracts.ActionCollectible.address;
+          const tokenStrength = await readContracts.ActionCollectibleState.getStrength(loogiesAddress, tokenIndex);
+          const tokenStats = await readContracts.ActionCollectibleState.getTokenStats(loogiesAddress, tokenIndex);
+          const tokenState = handleTokenState(tokenStats[1]);
+          const tokenVibe = handleTokenVibe(tokenStats[2]);
+          const jsonManifestString = Buffer.from(tokenURI.substring(29), "base64").toString();
+          console.log("jsonManifestString: " + jsonManifestString);
+
+          try {
+            const jsonManifest = JSON.parse(jsonManifestString);
+            console.log("jsonManifest: " + jsonManifest);
+            assetUpdate.push({
+              id: tokenIndex,
+              uri: tokenURI,
+              state: tokenState,
+              strength: tokenStrength,
+              vibe: tokenVibe,
+              owner,
+              ...jsonManifest,
+            });
+          } catch (err) {
+            console.log(err);
+          }
+        } catch (err) {
+          console.log(err);
+        }
+      }
+      setLoadedAssets(assetUpdate);
+      if (assetUpdate && assetUpdate.length) setIsLoadingAssets(false);
+    };
+    if (readContracts && readContracts.ActionCollectible) updateYourCollectibles();
+  }, [readContracts, totalSupply]);
+
+  const galleryList = [];
+  for (const a in loadedAssets) {
+    console.log("loadedAssets", a, loadedAssets[a]);
+
+    const cardActions = [];
+
+    cardActions.push(
+      <div className="gallery-card-action" style={{ display: "flex" }}>
+        <span className="token-properties">
+          <span style={{ marginRight: 8, display: "inline-block" }}>owned by: </span>
+          <Address
+            address={loadedAssets[a].owner}
+            ensProvider={mainnetProvider}
+            blockExplorer={blockExplorer}
+            minimized
+          />
+        </span>
+        <span className="token-properties">Strength: {loadedAssets[a].strength.toNumber()}</span>
+        <span className="token-properties">State: {loadedAssets[a].state}</span>
+        <span className="token-properties">Vibes: {loadedAssets[a].vibe}</span>
+      </div>,
+    );
+
+    galleryList.push(
+      <Card
+        style={{ width: 250 }}
+        key={loadedAssets[a].id}
+        actions={cardActions}
+        title={<div>{loadedAssets[a].name} </div>}
+      >
+        <img style={{ maxWidth: 130 }} src={loadedAssets[a].image} alt="" />
+        <div style={{ opacity: 0.77 }}>{loadedAssets[a].description}</div>
+      </Card>,
+    );
+  }
 
   return (
     <div className="App">
@@ -245,10 +361,13 @@ function App(props) {
       />
       <Menu style={{ textAlign: "center", marginTop: 20 }} selectedKeys={[location.pathname]} mode="horizontal">
         <Menu.Item key="/">
-          <Link to="/">Loogies</Link>
+          <Link to="/">My Loogies</Link>
         </Menu.Item>
         <Menu.Item key="/Actions">
           <Link to="/Actions">Actions</Link>
+        </Menu.Item>
+        <Menu.Item key="/Gallery">
+          <Link to="/Gallery">Gallery</Link>
         </Menu.Item>
         <Menu.Item key="/debug">
           <Link to="/debug">Smart Contracts</Link>
@@ -266,16 +385,23 @@ function App(props) {
             loadWeb3Modal={loadWeb3Modal}
             blockExplorer={blockExplorer}
             address={address}
+            actionLockAddress={actionLockAddress}
+            publicLockContract={publicLockContract}
           />
         </Route>
         <Route exact path="/Actions">
-          {/* pass in any web3 props to this Home component. For example, yourLocalBalance */}
-          <Actions
-            readContracts={readContracts}
-            writeContracts={writeContracts}
-            tx={tx}
-            address={address}
-          />
+          <Actions readContracts={readContracts} writeContracts={writeContracts} tx={tx} address={address} />
+        </Route>
+        <Route exact path="/Gallery">
+          <div style={{ maxWidth: 1250, margin: "auto", marginTop: 32, paddingBottom: 256 }}>
+            {isloadingAssets ? (
+              <Spin />
+            ) : (
+              <StackGrid columnWidth={250} gutterWidth={16} gutterHeight={16}>
+                {galleryList}
+              </StackGrid>
+            )}
+          </div>
         </Route>
         <Route exact path="/debug">
           {/*

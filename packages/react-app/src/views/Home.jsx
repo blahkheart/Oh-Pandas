@@ -1,8 +1,11 @@
 import { Button, List, Card } from "antd";
 import React, { useState, useEffect } from "react";
+import { useUnlockState } from "../hooks";
 import { Address, AddressInput } from "../components";
 import { useContractReader } from "eth-hooks";
-
+import { purchaseMembership } from "../helpers";
+const { ethers } = require("ethers");
+const abis = require("@unlock-protocol/contracts");
 /**
  * web3 props can be passed from '../App.jsx' into your local view component for use
  * @param {*} yourLocalBalance balance on current network
@@ -18,13 +21,29 @@ function Home({
   blockExplorer,
   mainnetProvider,
   address,
+  actionLockAddress,
+  publicLockContract,
 }) {
-
   const [transferToAddresses, setTransferToAddresses] = useState({});
+  const [actionDurationBlocks, setActionDurationBlocks] = useState();
+  const isMember = useUnlockState(publicLockContract, address);
 
   // 🧠 This effect will update actionCollectibles by polling when your balance changes
   const balanceContract = useContractReader(readContracts, "ActionCollectible", "balanceOf", [address]);
   const [balance, setBalance] = useState();
+
+  useEffect(() => {
+    let _actionDurationBlocks;
+    const getBlocks = async () => {
+      try {
+        _actionDurationBlocks = await readContracts.ActionCollectibleState.actionDurationBlocks();
+        setActionDurationBlocks(_actionDurationBlocks.toNumber());
+      } catch (e) {
+        console.log("error fetching action duration blocks", e);
+      }
+    };
+    getBlocks();
+  }, [readContracts]);
 
   useEffect(() => {
     if (balanceContract) {
@@ -63,21 +82,74 @@ function Home({
         }
       }
       setActionCollectibles(collectibleUpdate.reverse());
-    }
-    if (address && balance)
-      updateActionCollectibles();
+    };
+    if (address && balance) updateActionCollectibles();
   }, [address, balance]);
 
   return (
     <div>
+      <div className="how-to-play" style={{ maxWidth: 820, margin: "auto" }}>
+        <h3>How to get started?</h3>
+        <ul style={{ textAlign: "left" }}>
+          <li>Mint Loogie NFT 🏗️</li>
+          <li>Register tokens to the state to initialize Loogie stats on Actions tab 📜</li>
+          <li>Get approved to take actions i.e slap or cast ✏️</li>
+          <li>
+            Start having some fun 🎉 and slap or cast spells on any Loogie. 🕹️
+            <br />
+            <b>Hints 💡</b>
+            <p>💎Dead Loogies i.e Loogies with zero (0) strength can't send or receive actions</p>
+            <p>💎Winning slaps makes the winner stronger and the loser weaker</p>
+            <p>💎Stronger loogies may counter slaps</p>
+            <p>💎Loogies on immune spell can't be slapped or cast</p>
+            <p>💎Casting immune spell increases the strength of the sender</p>
+            <p>
+              💎Only members can cast immune spell.{" "}
+              {!isMember ? (
+                <Button
+                  size="small"
+                  type="link"
+                  onClick={() => {
+                    purchaseMembership(userSigner, address, actionLockAddress);
+                  }}
+                >
+                  Join now
+                </Button>
+              ) : (
+                <Button size="small" disabled>
+                  Member
+                </Button>
+              )}
+            </p>
+            <p>💎Effect of actions lasts for {actionDurationBlocks} blocks</p>
+            <p>
+              💎Use <code style={{ background: "#dedede", padding: 2 }}>healAfterExpiry()</code> on Smart contracts tab
+              or 'Heal after action' button on Actions tab to restore dead loogies or strength when less than 10, works
+              after action effect wears off. <br /> Note: This resets loogie state, and vibes to default and chill
+              respectively, and strength to 10 if its less than 10 but only resets the state and vibes if strength is
+              greater than 10
+            </p>
+            <p className="active-loogie-color">
+              💎Loogie active state colors: <span className="slapped">Slapped</span> <span className="lust">Lust</span>{" "}
+              <span className="rage">Rage</span> <span className="dead">Dead</span>
+            </p>
+          </li>
+        </ul>
+      </div>
       <div style={{ maxWidth: 820, margin: "auto", marginTop: 32, paddingBottom: 32 }}>
         {userSigner ? (
-          <Button type={"primary"} onClick={() => {
-            // tx(writeContracts.ActionCollectible.mintItem())
-            tx(writeContracts.ActionCollectible.mintItem())
-          }}>MINT</Button>
+          <Button
+            type={"primary"}
+            onClick={() => {
+              tx(writeContracts.ActionCollectible.mintItem());
+            }}
+          >
+            MINT
+          </Button>
         ) : (
-          <Button type={"primary"} onClick={loadWeb3Modal}>CONNECT WALLET</Button>
+          <Button type={"primary"} onClick={loadWeb3Modal}>
+            CONNECT WALLET
+          </Button>
         )}
       </div>
 
@@ -88,7 +160,7 @@ function Home({
           renderItem={item => {
             const id = item.id.toNumber();
 
-            console.log("IMAGE", item.image)
+            console.log("IMAGE", item.image);
 
             return (
               <List.Item key={id + "_" + item.uri + "_" + item.owner}>
@@ -99,7 +171,15 @@ function Home({
                     </div>
                   }
                 >
-                  <a href={"https://opensea.io/assets/" + (readContracts && readContracts.ActionCollectible && readContracts.ActionCollectible.address) + "/" + item.id} target="_blank">
+                  <a
+                    href={
+                      "https://opensea.io/assets/" +
+                      (readContracts && readContracts.ActionCollectible && readContracts.ActionCollectible.address) +
+                      "/" +
+                      item.id
+                    }
+                    target="_blank"
+                  >
                     <img src={item.image} />
                   </a>
                   <div>{item.description}</div>

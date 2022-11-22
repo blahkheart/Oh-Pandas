@@ -83,7 +83,7 @@ function Subgraph(props) {
         <a href="https://thegraph.com/docs/about/introduction" target="_blank" rel="noopener noreferrer">
           The Graph
         </a>{" "}
-        with Oh Pandas (
+        with Action Loogies(
         <a href="https://youtu.be/T5ylzOTkn-Q" target="_blank" rel="noopener noreferrer">
           learn more
         </a>

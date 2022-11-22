@@ -207,7 +207,7 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                         writeContracts.ActionCollectibleState.registerToken(
                           contractData.fromContract,
                           tokenIdToRegister,
-                        )
+                        ),
                       );
                       console.log(txn.hash);
                     } catch (e) {
@@ -341,7 +341,7 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                           placeholder="Token ID"
                         />
                       </div>
-                      <div>
+                      <div style={{display: "flex", justifyContent: "space-between"}}>
                         <Button
                           disabled={isApprovedForAction === ethers.constants.AddressZero}
                           onClick={() => {
@@ -368,6 +368,25 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                           type="primary"
                         >
                           Send action
+                        </Button>
+                        <Button
+                          danger
+                          onClick={() => {
+                            const healAfterExpiry = async () => {
+                              try {
+                                const result = await tx(
+                                  writeContracts.ActionCollectibleState.healAfterExpiry(contractData.fromContract, id),
+                                );
+                                console.log("send action txn ", result.hash);
+                              } catch (e) {
+                                console.log(e);
+                              }
+                            };
+                            healAfterExpiry();
+                          }}
+                          type="primary"
+                        >
+                          Heal after action
                         </Button>
                       </div>
                     </div>
