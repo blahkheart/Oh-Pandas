@@ -25,6 +25,7 @@ import {
   FaucetHint,
   NetworkSwitch,
 } from "./components";
+import { TwitterOutlined } from "@ant-design/icons";
 import { NETWORKS, ALCHEMY_KEY } from "./constants";
 import externalContracts from "./contracts/external_contracts";
 import StackGrid from "react-stack-grid";
@@ -468,6 +469,22 @@ function App(props) {
                 ""
               )
             }
+          </Col>
+        </Row>
+        <Row align="middle">
+          <Col span={8} style={{ textAlign: "center", opacity: 1, marginTop: 5 }}>
+            <Button
+              onClick={() => {
+                window.open("https://twitter.com/dannithomx");
+              }}
+              size="large"
+              shape="round"
+            >
+              <span style={{ marginRight: 8 }} role="img" aria-label="support">
+                <TwitterOutlined style={{ fontSize: "18px", color: "#08c" }} />
+              </span>
+              Follow creator on Twitter
+            </Button>
           </Col>
         </Row>
       </div>

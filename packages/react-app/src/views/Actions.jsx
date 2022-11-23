@@ -1,7 +1,8 @@
 import { Button, Radio, Input, Select, List, Card } from "antd";
 import React, { useState, useEffect } from "react";
-import { Address, AddressInput } from "../components";
 import { useContractReader } from "eth-hooks";
+import { loogieActiveStateHandlers } from "../helpers";
+
 const ethers = require("ethers");
 const { Option } = Select;
 function Actions({ readContracts, writeContracts, tx, address }) {
@@ -17,7 +18,7 @@ function Actions({ readContracts, writeContracts, tx, address }) {
   const [castType, setCastType] = useState();
   const [balance, setBalance] = useState();
   const [tokenIdToRegister, setTokenIdToRegister] = useState();
-
+  const { handleTokenState, handleTokenVibe } = loogieActiveStateHandlers;
   const balanceContract = useContractReader(readContracts, "ActionCollectible", "balanceOf", [address]);
 
   useEffect(() => {
@@ -157,28 +158,7 @@ function Actions({ readContracts, writeContracts, tx, address }) {
   const capitalizeString = string => {
     return string.charAt(0).toUpperCase() + string.slice(1);
   };
-  const handleTokenState = number => {
-    if (number === 0) {
-      return "Default";
-    } else if (number === 1) {
-      return "Slapped";
-    } else if (number === 2) {
-      return "Winner";
-    } else if (number === 3) {
-      return "Dead";
-    }
-  };
-  const handleTokenVibe = number => {
-    if (number === 0) {
-      return "Chill";
-    } else if (number === 1) {
-      return "Lust";
-    } else if (number === 2) {
-      return "Rage";
-    } else if (number === 3) {
-      return "Immune";
-    }
-  };
+
   return (
     <div>
       <div style={{ maxWidth: 820, margin: "auto", marginTop: 32, paddingBottom: 32 }}>
@@ -341,7 +321,7 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                           placeholder="Token ID"
                         />
                       </div>
-                      <div style={{display: "flex", justifyContent: "space-between"}}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <Button
                           disabled={isApprovedForAction === ethers.constants.AddressZero}
                           onClick={() => {
@@ -356,7 +336,6 @@ function Actions({ readContracts, writeContracts, tx, address }) {
                                   castType ? castType : selectedAction,
                                 ];
                                 console.log("send params", sendParams);
-                                // const sendParams = []
                                 const sendAction = await tx(writeContracts.ActionCollectible.sendAction(sendParams));
                                 console.log("send action txn ", sendAction.hash);
                               } catch (e) {

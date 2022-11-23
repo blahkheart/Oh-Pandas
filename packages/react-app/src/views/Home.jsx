@@ -113,7 +113,7 @@ function Home({
                     purchaseMembership(userSigner, address, actionLockAddress);
                   }}
                 >
-                  Join now
+                  Join now (valid for 30days)
                 </Button>
               ) : (
                 <Button size="small" disabled>
